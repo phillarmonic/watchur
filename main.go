@@ -14,9 +14,11 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/phillarmonic/figlet/figletlib"
 )
 
 // matchGlob checks whether path matches any of the provided glob patterns.
@@ -122,10 +124,8 @@ func (r *runner) stopGracefully(timeout time.Duration) {
 	if runtime.GOOS != "windows" {
 		_ = cmd.Process.Signal(os.Interrupt)
 		// Also attempt SIGTERM
-		if p, ok := cmd.Process.(*os.Process); ok {
-			// Ignore error; not all platforms expose SIGTERM this way
-			_ = p.Signal(os.Signal(syscallSIGTERM()))
-		}
+		// Ignore error; not all platforms expose SIGTERM this way
+		_ = cmd.Process.Signal(syscallSIGTERM())
 	} else {
 		// Best-effort on Windows
 		_ = cmd.Process.Kill()
@@ -150,41 +150,9 @@ func shellCommand(s string) *exec.Cmd {
 	return exec.Command("sh", "-lc", s)
 }
 
-// syscallSIGTERM provides SIGTERM value without importing syscall directly to keep lint simple.
+// syscallSIGTERM provides SIGTERM value for Unix systems.
 func syscallSIGTERM() os.Signal {
-	type sigterm interface{ Signal() }
-	// Fallback for non-Unix will never be used due to GOOS check.
-	return os.Signal(syscallSIGTERMValue)
-}
-
-// Small trick to avoid direct syscall import in this snippet; we fill at init by platform.
-var syscallSIGTERMValue os.Signal
-
-func init() {
-	// Use reflection via the syscall package only when available.
-	// Importing syscall is fine, keep it simple.
-	syscallSIGTERMValue = getSIGTERM()
-}
-
-func getSIGTERM() os.Signal {
-	// Import here to avoid linter warnings at top for unused on Windows builds.
-	type sig = os.Signal
-	// On Unix, we can just reference syscall.SIGTERM.
-	// We use a tiny helper function compiled for all platforms but the value is ignored on Windows.
-	return signalSigterm()
-}
-
-// signalSigterm is split for clarity; implemented generically.
-func signalSigterm() os.Signal {
-	// Bring in syscall here.
-	type sig = os.Signal
-	// Use a build-tag-less approach: reflect not needed; we import syscall.
-	return getSyscallSigterm()
-}
-
-func getSyscallSigterm() os.Signal {
-	// On non-Unix this is 15, but will be ignored.
-	return os.Signal(15)
+	return syscall.SIGTERM
 }
 
 func main() {
@@ -206,9 +174,16 @@ func main() {
 	flag.BoolVar(&verbose, "v", false, "verbose logging")
 	flag.BoolVar(&noInitial, "no-initial-run", false, "do not run the command once at startup")
 	flag.Parse()
+	loader := figletlib.NewEmbededLoader()
+	font, err := loader.GetFontByName("standard")
+	if err != nil {
+		panic(err)
+	}
 
 	if runCmd == "" {
-		fmt.Fprintln(os.Stderr, "--run is required")
+		figletlib.PrintMsg("Watchur", font, 80, font.Settings(), "left")
+		fmt.Println("A file watching utility")
+		fmt.Fprintln(os.Stderr, "Error: --run is required")
 		os.Exit(2)
 	}
 
