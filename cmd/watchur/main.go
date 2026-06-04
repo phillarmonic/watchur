@@ -21,6 +21,11 @@ import (
 	"github.com/phillarmonic/figlet/figletlib"
 )
 
+var (
+	version = "dev"
+	date    = "unknown"
+)
+
 // matchGlob checks whether path matches any of the provided glob patterns.
 // If patterns is empty, it returns true (match all).
 func matchGlob(path string, patterns []string) bool {
@@ -109,7 +114,9 @@ func (r *runner) run() {
 	}
 	r.current = cmd
 	go func(c *exec.Cmd) {
-		_ = c.Wait()
+		if err := c.Wait(); err != nil {
+			log.Printf("command exited with error: %v", err)
+		}
 	}(cmd)
 }
 
@@ -132,7 +139,9 @@ func (r *runner) stopGracefully(timeout time.Duration) {
 	}
 	done := make(chan struct{})
 	go func() {
-		cmd.Wait()
+		if err := cmd.Wait(); err != nil {
+			log.Printf("command exited while stopping: %v", err)
+		}
 		close(done)
 	}()
 	select {
@@ -157,13 +166,14 @@ func syscallSIGTERM() os.Signal {
 
 func main() {
 	var (
-		rootDir    string
-		extStr     string
-		exceptStr  string
-		runCmd     string
-		debounceMS int
-		verbose    bool
-		noInitial  bool
+		rootDir     string
+		extStr      string
+		exceptStr   string
+		runCmd      string
+		debounceMS  int
+		verbose     bool
+		noInitial   bool
+		showVersion bool
 	)
 
 	flag.StringVar(&rootDir, "dir", ".", "directory to watch (recursively)")
@@ -173,7 +183,14 @@ func main() {
 	flag.IntVar(&debounceMS, "debounce", 250, "debounce window in milliseconds")
 	flag.BoolVar(&verbose, "v", false, "verbose logging")
 	flag.BoolVar(&noInitial, "no-initial-run", false, "do not run the command once at startup")
+	flag.BoolVar(&showVersion, "version", false, "print version and build date")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Printf("watchur %s (%s)\n", version, date)
+		return
+	}
+
 	loader := figletlib.NewEmbededLoader()
 	font, err := loader.GetFontByName("standard")
 	if err != nil {
@@ -191,6 +208,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	startedAt := time.Now()
 
 	exts := splitCSV(extStr)
 	excepts := normalizeExcludes(splitCSV(exceptStr))
@@ -199,7 +217,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			log.Printf("watcher close failed: %v", err)
+		}
+	}()
 
 	// Setup context cancellation on SIGINT/SIGTERM.
 	sigc := make(chan os.Signal, 2)
@@ -277,6 +299,12 @@ func main() {
 
 				// Only trigger on file changes we care about
 				if matchGlob(rel, exts) || matchGlob(filepath.Base(rel), exts) {
+					if !eventOccurredAfterStart(e, startedAt) {
+						if verbose {
+							log.Printf("ignore stale change: %s (%s)", rel, opString(e.Op))
+						}
+						continue
+					}
 					if verbose {
 						log.Printf("change: %s (%s)", rel, opString(e.Op))
 					}
@@ -322,6 +350,19 @@ func opString(op fsnotify.Op) string {
 		parts = append(parts, "CHMOD")
 	}
 	return strings.Join(parts, "|")
+}
+
+func eventOccurredAfterStart(e fsnotify.Event, startedAt time.Time) bool {
+	if e.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0 {
+		return true
+	}
+
+	info, err := os.Stat(e.Name)
+	if err != nil {
+		return true
+	}
+
+	return info.ModTime().After(startedAt)
 }
 
 func splitCSV(s string) []string {
