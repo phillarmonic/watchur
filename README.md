@@ -14,19 +14,33 @@ By default, `watchur` also performs one initial run at startup. Use `--no-initia
 
 ## Install
 
-Install directly with Go:
+Use the install script:
 
 ```bash
-go install ./cmd/watchur
+curl -sSL https://raw.githubusercontent.com/phillarmonic/watchur/master/install.sh | bash
 ```
 
-If you want the embedded build metadata used by the project spec:
+Install a specific version:
 
 ```bash
-xdrun install
+curl -sSL https://raw.githubusercontent.com/phillarmonic/watchur/master/install.sh | bash -s vX.Y.Z
 ```
 
-Check the embedded build info:
+Install with Go:
+
+```bash
+go install github.com/phillarmonic/watchur/cmd/watchur@latest
+```
+
+Install a specific tagged version with Go:
+
+```bash
+go install github.com/phillarmonic/watchur/cmd/watchur@vX.Y.Z
+```
+
+The installer downloads the release binary for your platform and installs it to `$HOME/.local/bin` by default on Unix systems or `$HOME/bin` on Windows-compatible shells.
+
+Check the installed version:
 
 ```bash
 watchur --version
@@ -43,6 +57,8 @@ Example:
 ```bash
 watchur --dir . --extensions "*.go" --run "go test ./..."
 ```
+
+Release binaries are published as plain executables named like `watchur-linux-amd64` and `watchur-darwin-arm64`.
 
 ## Flags
 
@@ -107,7 +123,13 @@ Matching is checked against both the relative path and the file basename for con
 
 ## Development
 
-Run the local checks with `drun`:
+For local development, install from source in this repo:
+
+```bash
+go install ./cmd/watchur
+```
+
+If you want the project-defined build metadata and commands, use `drun`:
 
 ```bash
 xdrun test
